@@ -1,0 +1,176 @@
+---
+title: "Bridges and Unemployment"
+author: "Qianyu Liu"
+date: "February 22, 2018"
+output: rmarkdown::github_document
+---
+
+
+### Assignment
+
+Fit a simple linear model where $y_i$ is the unemployment rate  for county $i$ and $x_i$ is something about county $i$ from the bridges data (e.g. the value plotted on the map in 1 above). Then, make a map of $y_i$, another map of $x_i$, and a final map of the residuals from the linear regression.   
+
+You can directly edit this document, making sure to "properly" cite things that are not yours (e.g. add a comment that this is from xyz).  
+
+Below, I have put some code to get you started.  It is the code that we have been using in the past classes.
+
+###  Some code to get started. 
+
+
+The first bit of code loads the necessary libraries and downloads the data.  I have 
+
+```{r}
+library(choroplethr)
+library(choroplethrMaps)
+library(data.table)
+library(tidyverse)
+```
+
+```{r echo = F}
+# this gets all the data.  
+if("bridges.RData" %in% list.files()){
+  load("bridges.RData")
+}else{
+  dat <- fread("curl https://www.fhwa.dot.gov/bridge/nbi/2017hwybronlyonefile.zip | funzip") %>% as.tbl
+  save(dat, file = "bridges.RData")
+}
+#
+
+```
+
+From the downloaded data `dat`, we select some columns, zoom-in to Wisconsin, and create a rating for the bridges.  
+
+```{r}
+keep = c("STATE_CODE_001", "STRUCTURE_NUMBER_008" , "COUNTY_CODE_003", "LAT_016", "LONG_017", "TOLL_020" , "ADT_029"           ,      "YEAR_ADT_030" ,
+         "YEAR_BUILT_027" , "DECK_COND_058" , "SUPERSTRUCTURE_COND_059", "SUBSTRUCTURE_COND_060"  , "CHANNEL_COND_061","CULVERT_COND_062", "DATE_OF_INSPECT_090"   ,  "FRACTURE_092A",  "UNDWATER_LOOK_SEE_092B" , "SPEC_INSPECT_092C"  )
+
+x = select(dat, one_of(keep))
+
+wi = filter(x, STATE_CODE_001 == 55)
+
+
+# make function to rate bridge as NA, good, bad, fail, using 
+# colnames(wi)[10:13]
+# "SUPERSTRUCTURE_COND_059" "SUBSTRUCTURE_COND_060"   "CHANNEL_COND_061"        "CULVERT_COND_062"  
+# good = 5:9
+# bad = 2:4
+# fail = 0:1
+
+# cond "condition" is the minimum of the given ratings. 
+wi = mutate(wi, cond = pmin(SUPERSTRUCTURE_COND_059, SUBSTRUCTURE_COND_060, CHANNEL_COND_061,CULVERT_COND_062, 
+                            na.rm = T))
+
+rateIt = function(cond){
+  # gives a good to fail rating for cond.
+  rate = rep("good", length(cond))
+  rate[cond<5] = "bad"
+  rate[cond <2]= "fail"
+  return(rate)
+}
+
+wi$rate = rateIt(wi$cond)
+table(wi$cond)
+table(wi$rate)
+```
+
+Next, we make a map of bridge quality, by Wisconsin county.
+
+```{r}
+wi = filter(wi, cond>1)
+# ggplot(data = wi, mapping = aes(y = log(ADT_029), x =YEAR_BUILT_027, col = rate)) +geom_point() + geom_smooth()
+wi = wi %>% mutate(fips = STATE_CODE_001*1000+COUNTY_CODE_003)
+wi = wi %>% mutate(good = (rate == "good"))
+fipsdat = wi %>% group_by(fips) %>% summarize(propGoodRoads = mean(good))
+fipsdat %>% transmute(region = fips, value = propGoodRoads) %>% county_choropleth(state_zoom = "wisconsin")
+```
+
+
+Now, let's download the BLS unemployment data.  For some reason, `download.file` is not running in the markdown document. So, run these lines in your working directory before re-compiling this code.
+
+```{r eval = FALSE}
+library(blscrapeR)
+library(dplyr)
+library(choroplethr)  
+## blscraeR does a lot of clean up of this file:  https://www.bls.gov/web/metro/laucntycur14.txt
+x = get_bls_county() %>% as.tbl
+save(x, file = "unemployment.RData")
+```
+
+Now, make a map with some pipes!
+
+```{r}
+# pipe it! 
+load("unemployment.RData")  # if this gives an error, make sure you (1) downloaded the data (see last chunk) and (2) saved it in the current working directory. 
+x %>% 
+  mutate(value = as.numeric(unemployed_rate), region = as.numeric(fips)) %>% 
+  select(region, value) %>%
+  county_choropleth
+```
+
+
+```{r}
+keep = c("STATE_CODE_001", "STRUCTURE_NUMBER_008" , "COUNTY_CODE_003", "LAT_016", "LONG_017", "TOLL_020" , "ADT_029"           ,      "YEAR_ADT_030" ,
+         "YEAR_BUILT_027" , "DECK_COND_058" , "SUPERSTRUCTURE_COND_059", "SUBSTRUCTURE_COND_060"  , "CHANNEL_COND_061","CULVERT_COND_062", "DATE_OF_INSPECT_090"   ,  "FRACTURE_092A",  "UNDWATER_LOOK_SEE_092B" , "SPEC_INSPECT_092C"  )
+
+y = select(dat, one_of(keep))
+
+y = mutate(y, cond = pmin(SUPERSTRUCTURE_COND_059, SUBSTRUCTURE_COND_060, CHANNEL_COND_061,CULVERT_COND_062, 
+                            na.rm = T))
+
+rateIt = function(cond){
+  # gives a good to fail rating for cond.
+  rate = rep("good", length(cond))
+  rate[cond<5] = "bad"
+  rate[cond <2]= "fail"
+  return(rate)
+}
+
+y$rate = rateIt(y$cond)
+table(y$cond)
+table(y$rate)
+```
+
+```{r}
+y = filter(y, cond>1)
+# ggplot(data = wi, mapping = aes(y = log(ADT_029), x =YEAR_BUILT_027, col = rate)) +geom_point() + geom_smooth()
+y = y %>% mutate(fips = STATE_CODE_001*1000+COUNTY_CODE_003)
+y = y %>% mutate(good = (rate == "good"))
+fipsdat = y %>% group_by(fips) %>% summarize(propGoodRoads = mean(good))
+
+```
+
+```{r}
+x$fips <- as.numeric(x$fips)
+index=which(is.na(fipsdat$fips))
+fipsdat=fipsdat[-index,]
+x$propGoodRoads=NA
+for (i in 1:nrow(x)){
+  for (j in 1:nrow(fipsdat)){
+    if(x$fips[i]==fipsdat$fips[j]){
+      x$propGoodRoads[i]=fipsdat$propGoodRoads[j]
+      break
+    }
+  }
+}
+
+index=which(is.na(x$propGoodRoads))
+newdata=x[-index,]
+```
+
+
+## map of proportion of good-condition roads
+```{r}
+newdata %>% transmute(region = fips, value = propGoodRoads) %>% 
+  select(region, value) %>%
+  county_choropleth
+```
+
+
+# map of the residuals
+```{r}
+m <- lm(unemployed_rate~propGoodRoads, data = newdata)
+newdata %>% 
+  transmute(region = newdata$fips, value = m$residuals) %>%
+  select(region, value) %>%
+  county_choropleth
+```
